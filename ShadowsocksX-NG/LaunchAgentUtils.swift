@@ -8,9 +8,10 @@
 
 import Foundation
 
-let SS_LOCAL_VERSION = "2.5.6"
-let KCPTUN_CLIENT_VERSION = "20170117"
+let SS_LOCAL_VERSION = "3.1.3"
+let KCPTUN_CLIENT_VERSION = "v20170718"
 let PRIVOXY_VERSION = "3.0.26.static"
+let SIMPLE_OBFS_VERSION = "0.0.5"
 let APP_SUPPORT_DIR = "/Library/Application Support/ShadowsocksX-NG/"
 let LAUNCH_AGENT_DIR = "/Library/LaunchAgents/"
 let LAUNCH_AGENT_CONF_SSLOCAL_NAME = "com.qiuyuzhou.shadowsocksX-NG.local.plist"
@@ -31,7 +32,7 @@ func getFileSHA1Sum(_ filepath: String) -> String {
 //  MARK: sslocal
 
 func generateSSLocalLauchAgentPlist() -> Bool {
-    let sslocalPath = NSHomeDirectory() + APP_SUPPORT_DIR + "ss-local"
+    let sslocalPath = NSHomeDirectory() + APP_SUPPORT_DIR + "ss-local-latest/ss-local"
     let logFilePath = NSHomeDirectory() + "/Library/Logs/ss-local.log"
     let launchAgentDirPath = NSHomeDirectory() + LAUNCH_AGENT_DIR
     let plistFilepath = launchAgentDirPath + LAUNCH_AGENT_CONF_SSLOCAL_NAME
@@ -55,22 +56,24 @@ func generateSSLocalLauchAgentPlist() -> Bool {
     if enableVerboseMode {
         arguments.append("-v")
     }
+    arguments.append("--reuse-port")
     
     // For a complete listing of the keys, see the launchd.plist manual page.
     let dict: NSMutableDictionary = [
         "Label": "com.qiuyuzhou.shadowsocksX-NG.local",
         "WorkingDirectory": NSHomeDirectory() + APP_SUPPORT_DIR,
-        "KeepAlive": true,
         "StandardOutPath": logFilePath,
         "StandardErrorPath": logFilePath,
         "ProgramArguments": arguments,
-        "EnvironmentVariables": ["DYLD_LIBRARY_PATH": NSHomeDirectory() + APP_SUPPORT_DIR]
+        "EnvironmentVariables": ["DYLD_LIBRARY_PATH": NSHomeDirectory() + APP_SUPPORT_DIR + "ss-local-latest/"]
     ]
     dict.write(toFile: plistFilepath, atomically: true)
     let Sha1Sum = getFileSHA1Sum(plistFilepath)
     if oldSha1Sum != Sha1Sum {
+        NSLog("generateSSLocalLauchAgentPlist - File has been changed.")
         return true
     } else {
+        NSLog("generateSSLocalLauchAgentPlist - File has not been changed.")
         return false
     }
 }
@@ -104,8 +107,7 @@ func InstallSSLocal() {
     let homeDir = NSHomeDirectory()
     let appSupportDir = homeDir+APP_SUPPORT_DIR
     if !fileMgr.fileExists(atPath: appSupportDir + "ss-local-\(SS_LOCAL_VERSION)/ss-local")
-    || !fileMgr.fileExists(atPath: appSupportDir + "libcrypto.1.0.0.dylib")
-    || !fileMgr.fileExists(atPath: appSupportDir + "libpcre.1.dylib") {
+       || !fileMgr.fileExists(atPath: appSupportDir + "ss-local-\(SS_LOCAL_VERSION)/libmbedcrypto.0.dylib") {
         let bundle = Bundle.main
         let installerPath = bundle.path(forResource: "install_ss_local.sh", ofType: nil)
         let task = Process.launchedProcess(launchPath: installerPath!, arguments: [""])
@@ -125,12 +127,14 @@ func writeSSLocalConfFile(_ conf:[String:AnyObject]) -> Bool {
         
         let oldSum = getFileSHA1Sum(filepath)
         try data.write(to: URL(fileURLWithPath: filepath), options: .atomic)
-        let newSum = getFileSHA1Sum(filepath)
+        let newSum = data.sha1()
         
         if oldSum == newSum {
+            NSLog("writeSSLocalConfFile - File has not been changed.")
             return false
         }
         
+        NSLog("writeSSLocalConfFile - File has been changed.")
         return true
     } catch {
         NSLog("Write ss-local file failed.")
@@ -152,7 +156,9 @@ func SyncSSLocal() {
     changed = changed || generateSSLocalLauchAgentPlist()
     let mgr = ServerProfileManager.instance
     if mgr.activeProfileId != nil {
-        changed = changed || writeSSLocalConfFile((mgr.getActiveProfile()?.toJsonConfig())!)
+        if let profile = mgr.getActiveProfile() {
+            changed = changed || writeSSLocalConfFile((profile.toJsonConfig()))
+        }
         
         let on = UserDefaults.standard.bool(forKey: "ShadowsocksOn")
         if on {
@@ -180,6 +186,27 @@ func SyncSSLocal() {
 }
 
 // --------------------------------------------------------------------------------
+//  MARK: simple-obfs
+
+func InstallSimpleObfs() {
+    let fileMgr = FileManager.default
+    let homeDir = NSHomeDirectory()
+    let appSupportDir = homeDir + APP_SUPPORT_DIR
+    if !fileMgr.fileExists(atPath: appSupportDir + "simple-obfs-\(SIMPLE_OBFS_VERSION)/obfs-local")
+        || !fileMgr.fileExists(atPath: appSupportDir + "plugins/obfs-local") {
+        let bundle = Bundle.main
+        let installerPath = bundle.path(forResource: "install_simple_obfs.sh", ofType: nil)
+        let task = Process.launchedProcess(launchPath: "/bin/sh", arguments: [installerPath!])
+        task.waitUntilExit()
+        if task.terminationStatus == 0 {
+            NSLog("Install simple-obfs succeeded.")
+        } else {
+            NSLog("Install simple-obfs failed.")
+        }
+    }
+}
+
+// --------------------------------------------------------------------------------
 //  MARK: privoxy
 
 func generatePrivoxyLauchAgentPlist() -> Bool {
@@ -202,7 +229,6 @@ func generatePrivoxyLauchAgentPlist() -> Bool {
     let dict: NSMutableDictionary = [
         "Label": "com.qiuyuzhou.shadowsocksX-NG.http",
         "WorkingDirectory": NSHomeDirectory() + APP_SUPPORT_DIR,
-        "KeepAlive": true,
         "StandardOutPath": logFilePath,
         "StandardErrorPath": logFilePath,
         "ProgramArguments": arguments
@@ -339,13 +365,24 @@ func generateKcptunLauchAgentPlist() -> Bool {
     
     let oldSha1Sum = getFileSHA1Sum(plistFilepath)
     
-    let arguments = [sslocalPath, "-c", "kcptun-config.json"]
+    var arguments = [sslocalPath, "-c", "kcptun-config.json"]
+    
+    let mgr = ServerProfileManager.instance
+    if let profile = mgr.getActiveProfile() {
+        if profile.enabledKcptun {
+            let otherArgumentsLine = profile.kcptunProfile.arguments.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            if !otherArgumentsLine.isEmpty {
+                // TOFIX: Don't support space between quotation marks
+                let otherArguments = otherArgumentsLine.components(separatedBy: " ")
+                arguments.append(contentsOf: otherArguments.filter { !$0.isEmpty })
+            }
+        }
+    }
     
     // For a complete listing of the keys, see the launchd.plist manual page.
     let dict: NSMutableDictionary = [
         "Label": "com.qiuyuzhou.shadowsocksX-NG.kcptun",
         "WorkingDirectory": NSHomeDirectory() + APP_SUPPORT_DIR,
-        "KeepAlive": true,
         "StandardOutPath": logFilePath,
         "StandardErrorPath": logFilePath,
         "ProgramArguments": arguments,

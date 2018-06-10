@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 #  install_ss_local.sh
 #  ShadowsocksX-NG
@@ -8,14 +8,35 @@
 
 
 cd `dirname "${BASH_SOURCE[0]}"`
-mkdir -p "$HOME/Library/Application Support/ShadowsocksX-NG/ss-local-2.5.6"
-cp -f ss-local "$HOME/Library/Application Support/ShadowsocksX-NG/ss-local-2.5.6/"
-rm -f "$HOME/Library/Application Support/ShadowsocksX-NG/ss-local"
-ln -s "$HOME/Library/Application Support/ShadowsocksX-NG/ss-local-2.5.6/ss-local" "$HOME/Library/Application Support/ShadowsocksX-NG/ss-local"
 
-cp -f libcrypto.1.0.0.dylib "$HOME/Library/Application Support/ShadowsocksX-NG/"
-cp -f libpcre.1.dylib "$HOME/Library/Application Support/ShadowsocksX-NG/"
-rm -f "$HOME/Library/Application Support/ShadowsocksX-NG/libpcre.dylib"
-ln -s "$HOME/Library/Application Support/ShadowsocksX-NG/libpcre.1.dylib" "$HOME/Library/Application Support/ShadowsocksX-NG/libpcre.dylib"
+NGDir="$HOME/Library/Application Support/ShadowsocksX-NG"
+TargetDir="$NGDir/ss-local-3.1.3"
+LatestTargetDir="$NGDir/ss-local-latest"
+
+echo ngdir: ${NGDir}
+
+mkdir -p "$TargetDir"
+cp -f ss-local "$TargetDir"
+rm -f "$LatestTargetDir"
+ln -s "$TargetDir" "$LatestTargetDir"
+
+cp -f libev.4.dylib "$TargetDir"
+
+# 2.8.0 https://bintray.com/homebrew/bottles/mbedtls
+cp -f libmbedcrypto.2.8.0.dylib "$TargetDir"
+ln -sfh  "$TargetDir/libmbedcrypto.2.8.0.dylib" "$TargetDir/libmbedcrypto.1.dylib"
+
+# 8.42 https://bintray.com/homebrew/bottles/pcre
+cp -f libpcre.1.dylib "$TargetDir"
+
+# 1.0.16 https://bintray.com/homebrew/bottles/libsodium
+cp -f libsodium.23.dylib "$TargetDir"
+ln -sfh "$TargetDir/libsodium.23.dylib" "$TargetDir/libsodium.dylib"
+
+#cp -f libudns.0.dylib "$TargetDir"
+
+# 1.14.0 https://bintray.com/homebrew/bottles/c-ares
+cp -f libcares.2.dylib "$TargetDir"
+ln -sfh "$TargetDir/libcares.2.dylib" "$TargetDir/libcares.dylib"
 
 echo done
